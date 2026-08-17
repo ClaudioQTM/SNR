@@ -5,11 +5,11 @@ using SparseArrays
 using Distributions
 
 
-# global variables always change, which slows the code
+
 println(Threads.nthreads()) # check the number of threads
 
 const tot_t = 5.0               # total time, data type should be float.
-const steps = 10000
+const steps = 100
 const Δt = tot_t / steps
 const β = 0.05
 const Γtot = 1.0
@@ -75,6 +75,7 @@ end
 
 # define commutators
 com(A,B) = A*B-B*A
+anticom(A,B) = A*B+B*A
 D(x,ρ)= x*ρ*x'-1/2*(x'*x*ρ+ρ*x'*x)
 sum1 = sum(σm_full+σp_full)
 sum1 = sparse(sum1)
@@ -112,44 +113,54 @@ n_out = a_out' * a_out
 out_power = tr(a_out'*a_out*sol_ss.u)
 
 
-function curlJ(B,ρ)
+function curlJ(B,ρ) #jump operator
     val = B * ρ * B'
     return val
 end
 
-function curlH(A,B)
-    C = A * B + B * A'
-    val = C - tr(C) * B
-    return val
-end
 
-function curlg(A,B)
-    J = curlJ(A,B)
-    val = J / tr(J) - B
-    return val
-end
+H_prime = 0.5 * Γtot * sqrt(P_in/P_sat) * sum1 + β/2 * Γtot * sum2
 
-H_prime =0.5 * Γtot * sqrt(P_in/P_sat) * sum1 + β/2 * Γtot * sum2
-
-function SME(H_prime,ρ,dN_val)
+function L0(H_prime,ρ)
     individual_decay = (1-β)*Γtot*sum(x -> D(x,ρ),σm_full)
-    RHS = -curlH(1im * H_prime+ 0.5 * n_out,ρ) + dN_val * curlg(a_out,ρ) + individual_decay
-    return RHS
+    L0ρ = -1im * com(H_prime,ρ) - 0.5 * anticom(n_out,ρ) + individual_decay
+    return L0ρ
+end
+
+function L1(ρ)
+    ρ_unnorm = curlJ(a_out,ρ)
+    return ρ_unnorm
+end
+
     
 """generate a Bernoulli random variable with the parameters determined by the real time photon flux and length of time interval dt"""
 function dN(ρ)
     λ = tr(n_out * ρ)
-    p = Bernoulli(λ*Δt)
-    val = rand(p)
+    λ = real(λ) # make sure that λ is a real number
+    x = Bernoulli(λ*Δt)
+    val = rand(x)
     return val
+end
 
 
+global ρt = sol_ss.u
+for tt in 1:steps
+    dN_val = dN(ρt)
+    if dN_val == 1
+        dρt = L1(ρt)
+        global ρt = ρt + dρt
+    elseif dN_val == 0
+        dρt = L0(H_prime,ρt)
+        global ρt = ρt + dρt*Δt
+    else
+        error("dN_val is not 0 or 1")
+    end
+
+    global ρt = ρt / tr(ρt) # re-normalize the density matrix
+end
 
 
-
-
-
-
+print(ρt)
 
 
 
