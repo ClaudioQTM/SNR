@@ -11,9 +11,9 @@ using Random
 println(Threads.nthreads()) # check the number of threads
 
 const tot_t = 50.0               # total time, data type should be float.
-const steps = Int(1e4)
+const steps = Int(1e3)
 const Δt = tot_t / steps
-const n_traj = 500               # the number of quantum trajectories
+const n_traj = 50               # the number of quantum trajectories
 const β = 0.3
 const Γtot = 1.0
 const γ = β*Γtot
@@ -34,7 +34,8 @@ BS = DiscreteNonParametric(detector_label, BS_prob) # random variables to determ
 
 # detector parameters
 detector_state = [0,0,0] # 0 represents Ready state and 1 represents Dead state
-τdd = 2 / Γtot # this value is taken from the 2nd wiseman paper
+τdd = 2 / Γtot # this value is taken from wiseman's 2nd paper
+t_bin = 3 / Γtot # the length of time bin for defining the three-photon coincidence event. The value is taken from Section D from our long paper.
 
 # operators
 const σx = [0 1; 1 0]
@@ -239,8 +240,28 @@ end
 final_state_list, emission_histories = trajectories_parallel(ρt0, n_traj)
 branch_record = BS_branch_selector_parallel(emission_histories)
 #println(emission_histories) # test the trajectory function
-println(size(branch_record)) 
+#println(size(branch_record))
 
+
+"""We split the entire simuation time tot_t into several time bins. In each time bin, we count the presence of the detected three photon coincidence."""
+function three_photon_coincidence_counter(branch_record,t_bin)
+    bin_step_size = Int(t_bin/Δt)
+    coincidence_count = 0
+    bin_number = Int(steps/bin_step_size)
+
+    for b in 1:bin_number
+
+        for tt in 1:bin_step_size
+            
+        end
+    end
+
+
+
+
+
+
+    
 
 
 #=
