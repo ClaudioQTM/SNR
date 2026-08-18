@@ -4,23 +4,24 @@ using SteadyStateDiffEq
 using SparseArrays
 using Distributions
 using Plots
+using Random
 
 
 
 println(Threads.nthreads()) # check the number of threads
 
 const tot_t = 50.0               # total time, data type should be float.
-const steps = Int(5e4)
+const steps = Int(1e4)
 const Δt = tot_t / steps
-const n_traj = 10               # the number of quantum trajectories
+const n_traj = 500               # the number of quantum trajectories
 const β = 0.3
 const Γtot = 1.0
 const γ = β*Γtot
 const Γ = (1-β)*Γtot                      # make sure that sqrt(β) << 1
 const k_0 = 0.0             # detuning of the input photons
 
-const α = sqrt(0.8)  # Actually it is α/√(L) in the paper
-const N = 2   
+const α = sqrt(0.5)  # Actually it is α/√(L) in the paper
+const N = 4
 const P_in  = abs(α)^2
 const P_sat = Γtot/β
 const a = k_0 + 1im*Γ*(1-2*β)/(2*β)
@@ -135,28 +136,29 @@ end
 
     
 """generate a Bernoulli random variable with the parameters determined by the real time photon flux and length of time interval dt"""
-function dN(ρ)
+function dN(ρ, rng::AbstractRNG=Random.default_rng())
     λ = tr(n_out * ρ)
     λ = real(λ) # make sure that λ is a real number
     x = Bernoulli(λ*Δt)
-    val = rand(x)
+    val = rand(rng, x)
     return val
 end
 
 
-global ρt0 = sol_ss.u
+#global ρt0 = sol_ss.u
+global ρt0 = ρ0
 
-function trajectory(ρt0)
-    ρt = ρt0
+function trajectory(ρt0, rng::AbstractRNG=Random.default_rng())
+    ρt = copy(ρt0)
     for tt in 1:steps
-        dN_val = dN(ρt)
+        dN_val = dN(ρt, rng)
 
         if dN_val == 1
         ρt = L1(ρt)
 
         elseif dN_val == 0
             dρt = L0(H_prime,ρt)
-            global ρt = ρt + dρt*Δt
+            ρt = ρt + dρt*Δt
         else
             error("dN_val is not 0 or 1")
         end
@@ -164,7 +166,21 @@ function trajectory(ρt0)
         ρt = ρt / tr(ρt) # re-normalize the density matrix
     end
     
-    return ρt,power
+    return ρt
+end
+
+function trajectories_parallel(ρt0, n::Integer; seed::Integer=1234)
+    n > 0 || throw(ArgumentError("number of trajectories must be positive"))
+
+    final_states = Vector{typeof(ρt0)}(undef, n)
+    Threads.@threads for i in 1:n
+        # Each trajectory owns its RNG, so execution is thread-safe and
+        # reproducible even when the thread scheduler changes the run order.
+        rng = Xoshiro(seed + i)
+        final_states[i] = trajectory(ρt0, rng)
+    end
+
+    return final_states
 end
 
 #=
@@ -173,8 +189,11 @@ println()
 println(tr(ρt+L0(H_prime,ρt)*Δt))
 =#
 
+final_states = trajectories_parallel(ρt0, n_traj)
+ρ_mean = reduce(+, final_states) / n_traj
+println(ρ_mean)
 
-plot(1:steps,power)
-
-
+relative_error = norm(ρ_mean - sol_ss.u) / norm(sol_ss.u)
+println("Relative Frobenius error: ", relative_error)
+#plot(1:steps,power)
 
