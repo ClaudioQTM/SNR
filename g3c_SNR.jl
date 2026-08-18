@@ -21,7 +21,7 @@ const Γ = (1-β)*Γtot                      # make sure that sqrt(β) << 1
 const k_0 = 0.0             # detuning of the input photons
 
 const α = sqrt(0.5)  # Actually it is α/√(L) in the paper
-const N = 4
+const N = 2
 const P_in  = abs(α)^2
 const P_sat = Γtot/β
 const a = k_0 + 1im*Γ*(1-2*β)/(2*β)
@@ -138,18 +138,28 @@ end
 """generate a Bernoulli random variable with the parameters determined by the real time photon flux and length of time interval dt"""
 function dN(ρ, rng::AbstractRNG=Random.default_rng())
     λ = tr(n_out * ρ)
+    if abs(imag(λ)) > 1e-10
+        error("Photon flux has a significant imaginary part")
+    end
     λ = real(λ) # make sure that λ is a real number
-    x = Bernoulli(λ*Δt)
+    if λ < 0.0
+        error("Negative photon flux: λ = $λ")
+    end
+    p = λ * Δt
+    if !(0.0 <= p <= 1.0)
+        error("Invalid jump probability λΔt = $p")
+    end
+    x = Bernoulli(p)
     val = rand(rng, x)
     return val
 end
 
 
-#global ρt0 = sol_ss.u
-global ρt0 = ρ0
+global ρt0 = sol_ss.u
 
 function trajectory(ρt0, rng::AbstractRNG=Random.default_rng())
     ρt = copy(ρt0)
+    emission_record = zeros(Int,steps)
     for tt in 1:steps
         dN_val = dN(ρt, rng)
 
@@ -164,36 +174,81 @@ function trajectory(ρt0, rng::AbstractRNG=Random.default_rng())
         end
 
         ρt = ρt / tr(ρt) # re-normalize the density matrix
+        emission_record[tt] = dN_val
     end
     
-    return ρt
+    return ρt, emission_record
 end
 
 function trajectories_parallel(ρt0, n::Integer; seed::Integer=1234)
     n > 0 || throw(ArgumentError("number of trajectories must be positive"))
-
+    
     final_states = Vector{typeof(ρt0)}(undef, n)
+    emission_record = Vector{Vector{Int}}(undef, n)
     Threads.@threads for i in 1:n
         # Each trajectory owns its RNG, so execution is thread-safe and
         # reproducible even when the thread scheduler changes the run order.
         rng = Xoshiro(seed + i)
-        final_states[i] = trajectory(ρt0, rng)
+        final_states[i],emission_record[i] = trajectory(ρt0, rng)
     end
 
-    return final_states
+    return final_states, emission_record
 end
 
-#=
-println(1-tr(n_out*ρt)*Δt)
-println()
-println(tr(ρt+L0(H_prime,ρt)*Δt))
-=#
 
+function BS_branch_selector(emission_history,rng::AbstractRNG = Random.default_rng())
+    detector_rec = zeros(Int, steps)
+    detector_state = [(0.0,0),(0.0,0),(0.0,0)] # in each tuple, the second element is the state of the detector (0 for Ready, 1 for Dead). the first element is the time stamp of the last detection if the detector state is dead.
+    for tt in 1:steps
+        for detector_label in 1:3
+            if detector_state[detector_label][2] == 1 && (tt - detector_state[detector_label][1]) * Δt > τdd
+                detector_state[detector_label] = (0.0,0) # reset the detector state to Ready
+            end
+        end
+        dN = emission_history[tt]
+        if dN == 1
+            branch_label = rand(rng, BS)
+            if detector_state[branch_label][2] == 0
+                detector_rec[tt] = branch_label
+                detector_state[branch_label] = (tt,1) # record the time stamp of the detection and change the state to Dead
+            end
+        end
+    end
+    return detector_rec
+end
+
+
+function BS_branch_selector_parallel(emission_histories; seed::Integer=1234)
+    n = length(emission_histories)
+    n > 0 || throw(ArgumentError("emission histories must not be empty"))
+
+    detector_records = Vector{Vector{Int}}(undef, n)
+    Threads.@threads for i in eachindex(emission_histories)
+        # Give each trajectory its own RNG so branch selection is thread-safe
+        # and reproducible independently of the thread scheduling order. The
+        # offset avoids reusing trajectories_parallel's RNG streams.
+        rng = Xoshiro(seed + n + i)
+        detector_records[i] = BS_branch_selector(emission_histories[i], rng)
+    end
+
+    return detector_records
+end
+
+
+
+final_state_list, emission_histories = trajectories_parallel(ρt0, n_traj)
+branch_record = BS_branch_selector_parallel(emission_histories)
+#println(emission_histories) # test the trajectory function
+println(size(branch_record)) 
+
+
+
+#=
 final_states = trajectories_parallel(ρt0, n_traj)
 ρ_mean = reduce(+, final_states) / n_traj
 println(ρ_mean)
 
 relative_error = norm(ρ_mean - sol_ss.u) / norm(sol_ss.u)
 println("Relative Frobenius error: ", relative_error)
-#plot(1:steps,power)
+=#
 
