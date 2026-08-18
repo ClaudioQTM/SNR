@@ -3,27 +3,28 @@ using DifferentialEquations
 using SteadyStateDiffEq
 using SparseArrays
 using Distributions
+using Plots
 
 
 
 println(Threads.nthreads()) # check the number of threads
 
-const tot_t = 5.0               # total time, data type should be float.
-const steps = 100
+const tot_t = 50.0               # total time, data type should be float.
+const steps = Int(5e4)
 const Δt = tot_t / steps
-const β = 0.05
+const n_traj = 10               # the number of quantum trajectories
+const β = 0.3
 const Γtot = 1.0
 const γ = β*Γtot
 const Γ = (1-β)*Γtot                      # make sure that sqrt(β) << 1
-const k_0 = 0.0
+const k_0 = 0.0             # detuning of the input photons
 
-const α = sqrt(0.5)  # Actually it is α/√(L) in the paper
+const α = sqrt(0.8)  # Actually it is α/√(L) in the paper
 const N = 2   
 const P_in  = abs(α)^2
 const P_sat = Γtot/β
-const resol = 101               # ODE solver saves the values at 101 time points including the initial time
-const Δt = tot_t/(resol-1)
 const a = k_0 + 1im*Γ*(1-2*β)/(2*β)
+
 
 # Beam splitter parameters
 detector_label = [1,2,3]
@@ -119,7 +120,7 @@ function curlJ(B,ρ) #jump operator
 end
 
 
-H_prime = 0.5 * Γtot * sqrt(P_in/P_sat) * sum1 + β/2 * Γtot * sum2
+H_prime = 0.5 * Γtot * sqrt(P_in/P_sat) * sum1 + 1im* β/2 * Γtot * sum2
 
 function L0(H_prime,ρ)
     individual_decay = (1-β)*Γtot*sum(x -> D(x,ρ),σm_full)
@@ -143,27 +144,37 @@ function dN(ρ)
 end
 
 
-global ρt = sol_ss.u
-for tt in 1:steps
-    dN_val = dN(ρt)
-    if dN_val == 1
-        dρt = L1(ρt)
-        global ρt = ρt + dρt
-    elseif dN_val == 0
-        dρt = L0(H_prime,ρt)
-        global ρt = ρt + dρt*Δt
-    else
-        error("dN_val is not 0 or 1")
-    end
+global ρt0 = sol_ss.u
 
-    global ρt = ρt / tr(ρt) # re-normalize the density matrix
+function trajectory(ρt0)
+    ρt = ρt0
+    for tt in 1:steps
+        dN_val = dN(ρt)
+
+        if dN_val == 1
+        ρt = L1(ρt)
+
+        elseif dN_val == 0
+            dρt = L0(H_prime,ρt)
+            global ρt = ρt + dρt*Δt
+        else
+            error("dN_val is not 0 or 1")
+        end
+
+        ρt = ρt / tr(ρt) # re-normalize the density matrix
+    end
+    
+    return ρt,power
 end
 
+#=
+println(1-tr(n_out*ρt)*Δt)
+println()
+println(tr(ρt+L0(H_prime,ρt)*Δt))
+=#
 
-print(ρt)
 
-
-
+plot(1:steps,power)
 
 
 
