@@ -13,14 +13,14 @@ println(Threads.nthreads()) # check the number of threads
 const tot_t = 50.0               # total time, data type should be float.
 const steps = Int(5e4)
 const Δt = tot_t / steps
-const n_traj = 500              # the number of quantum trajectories
-const β = 0.3
+const n_traj = 1000              # the number of quantum trajectories
+const β = 0.05
 const Γtot = 1.0
 const γ = β*Γtot
 const Γ = (1-β)*Γtot                      # make sure that sqrt(β) << 1
 const k_0 = 0.0             # detuning of the input photons
 
-const α = sqrt(0.5)  # Actually it is α/√(L) in the paper
+const α = sqrt(0.08)  # Actually it is α/√(L) in the paper
 const N = 2
 const P_in  = abs(α)^2
 const P_sat = Γtot/β
