@@ -16,13 +16,13 @@ export SimulationConfig,
        trajectory_with_records
 
 Base.@kwdef struct SimulationConfig
-    total_time::Float64 = 50.0
-    steps::Int = 50_000
-    trajectories::Int = 2_500
+    total_time::Float64 = 100.0
+    steps::Int = 100_000
+    trajectories::Int = 5_000
     beta::Float64 = 0.05
     gamma_total::Float64 = 1.0
     alpha::Float64 = sqrt(0.08)
-    atom_count::Int = 6
+    atom_count::Int = 5
     detector_dead_time::Float64 = 0.0
     bin_width::Float64 = 3.0
     splitter_probabilities::NTuple{3, Float64} = (1 / 3, 1 / 3, 1 / 3)
