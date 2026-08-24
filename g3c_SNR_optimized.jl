@@ -21,8 +21,8 @@ Base.@kwdef struct SimulationConfig
     trajectories::Int = 5_000
     beta::Float64 = 0.05
     gamma_total::Float64 = 1.0
-    alpha::Float64 = sqrt(0.08)
-    atom_count::Int = 4
+    alpha::Float64 = sqrt(0.1)
+    atom_count::Int = 6
     detector_dead_time::Float64 = 1
     bin_width::Float64 = 3.0
     splitter_probabilities::NTuple{3, Float64} = (1 / 3, 1 / 3, 1 / 3)
