@@ -17,7 +17,7 @@ const Γ = (1-β)*Γtot                      # make sure that sqrt(β) << 1
 const k_0 = 0.0
 
 const α = sqrt(0.2)  # Actually it is α/√(L) in the paper
-const N = 5  
+const N = 6  
 const P_in  = abs(α)^2
 const P_sat = Γtot/β
 const resol = 501               # ODE solver saves the values at 501 time points including the initial time
