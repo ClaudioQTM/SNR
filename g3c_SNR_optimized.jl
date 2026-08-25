@@ -9,7 +9,6 @@ export SimulationConfig,
        SimulationModel,
        TrajectoryStats,
        build_model,
-       config_from_environment,
        ensemble_statistics,
        run_ensemble,
        trajectory_statistics,
@@ -21,7 +20,7 @@ Base.@kwdef struct SimulationConfig
     trajectories::Int = 5_000
     beta::Float64 = 0.05
     gamma_total::Float64 = 1.0
-    alpha::Float64 = sqrt(0.1)
+    alpha::Float64 = sqrt(0.2)
     atom_count::Int = 6
     detector_dead_time::Float64 = 1
     bin_width::Float64 = 3.0
@@ -450,29 +449,20 @@ function ensemble_statistics(
     )
 end
 
-function environment_value(name::String, default, converter)
-    return haskey(ENV, name) ? converter(ENV[name]) : default
-end
-
-function config_from_environment()
-    defaults = SimulationConfig()
-    return SimulationConfig(
-        total_time = environment_value("G3C_TOTAL_TIME", defaults.total_time, x -> parse(Float64, x)),
-        steps = environment_value("G3C_STEPS", defaults.steps, x -> parse(Int, x)),
-        trajectories = environment_value("G3C_TRAJECTORIES", defaults.trajectories, x -> parse(Int, x)),
-        beta = environment_value("G3C_BETA", defaults.beta, x -> parse(Float64, x)),
-        gamma_total = environment_value("G3C_GAMMA_TOTAL", defaults.gamma_total, x -> parse(Float64, x)),
-        alpha = environment_value("G3C_ALPHA", defaults.alpha, x -> parse(Float64, x)),
-        atom_count = environment_value("G3C_ATOM_COUNT", defaults.atom_count, x -> parse(Int, x)),
-        detector_dead_time = environment_value("G3C_DEAD_TIME", defaults.detector_dead_time, x -> parse(Float64, x)),
-        bin_width = environment_value("G3C_BIN_WIDTH", defaults.bin_width, x -> parse(Float64, x)),
-        splitter_probabilities = defaults.splitter_probabilities,
-        seed = environment_value("G3C_SEED", defaults.seed, x -> parse(Int, x)),
-    )
-end
-
 function main()
-    config = config_from_environment()
+    config = SimulationConfig(
+        total_time = 75.0,
+        steps = 75_000,
+        trajectories = 5_000,
+        beta = 0.05,
+        gamma_total = 1.0,
+        alpha = sqrt(0.2),
+        atom_count = 6,
+        detector_dead_time = 1.0,
+        bin_width = 3.0,
+        splitter_probabilities = (1 / 3, 1 / 3, 1 / 3),
+        seed = 1_234,
+    )
     println(Threads.nthreads())
     model = build_model(config)
     println("Steady state is obtained")
