@@ -321,7 +321,8 @@ function simulate_trajectory(
     trajectory_index::Integer,
     ensemble_size::Integer,
     ::Val{capture_records},
-) where {capture_records}
+    ::Val{include_zero_dead_time},
+) where {capture_records, include_zero_dead_time}
     config = model.config
     dimension = model.dimension
     dt = time_step(config)
@@ -334,6 +335,8 @@ function simulate_trajectory(
     number_of_bins = fld(config.steps, bin_steps)
     used_steps = number_of_bins * bin_steps
     counts = zeros(Int, number_of_bins, 3)
+    zero_dead_time_counts =
+        include_zero_dead_time ? zeros(Int, number_of_bins, 3) : nothing
     last_detection = zeros(Int, 3)
     emitted_photons = 0
 
@@ -352,6 +355,11 @@ function simulate_trajectory(
             capture_records && (emission_record[step] = true)
 
             branch = select_branch(splitter_rng, config.splitter_probabilities)
+            if include_zero_dead_time && step <= used_steps
+                bin = fld(step - 1, bin_steps) + 1
+                zero_dead_time_counts[bin, branch] += 1
+            end
+
             ready =
                 last_detection[branch] == 0 ||
                 (step - last_detection[branch]) * dt > config.detector_dead_time
@@ -373,6 +381,24 @@ function simulate_trajectory(
     end
 
     stats = make_trajectory_stats(counts, emitted_photons, config)
+    if include_zero_dead_time
+        zero_dead_time_stats =
+            make_trajectory_stats(zero_dead_time_counts, emitted_photons, config)
+        if capture_records
+            return (
+                final_state = reshape(copy(state), dimension, dimension),
+                stats = stats,
+                zero_dead_time_stats = zero_dead_time_stats,
+                emission_record = emission_record,
+                branch_record = branch_record,
+            )
+        end
+        return (
+            configured_dead_time = stats,
+            zero_dead_time = zero_dead_time_stats,
+        )
+    end
+
     if capture_records
         return (
             final_state = reshape(copy(state), dimension, dimension),
@@ -388,13 +414,37 @@ trajectory_statistics(
     model::SimulationModel,
     trajectory_index::Integer;
     ensemble_size::Integer = model.config.trajectories,
-) = simulate_trajectory(model, trajectory_index, ensemble_size, Val(false))
+) = simulate_trajectory(
+    model,
+    trajectory_index,
+    ensemble_size,
+    Val(false),
+    Val(false),
+)
+
+paired_trajectory_statistics(
+    model::SimulationModel,
+    trajectory_index::Integer;
+    ensemble_size::Integer = model.config.trajectories,
+) = simulate_trajectory(
+    model,
+    trajectory_index,
+    ensemble_size,
+    Val(false),
+    Val(true),
+)
 
 trajectory_with_records(
     model::SimulationModel,
     trajectory_index::Integer;
     ensemble_size::Integer = model.config.trajectories,
-) = simulate_trajectory(model, trajectory_index, ensemble_size, Val(true))
+) = simulate_trajectory(
+    model,
+    trajectory_index,
+    ensemble_size,
+    Val(true),
+    Val(false),
+)
 
 function run_ensemble(model::SimulationModel)
     trajectory_count = model.config.trajectories
@@ -407,6 +457,25 @@ function run_ensemble(model::SimulationModel)
         )
     end
     return results
+end
+
+function run_ensemble_with_zero_dead_time(model::SimulationModel)
+    trajectory_count = model.config.trajectories
+    configured_dead_time_results = Vector{TrajectoryStats}(undef, trajectory_count)
+    zero_dead_time_results = Vector{TrajectoryStats}(undef, trajectory_count)
+    Threads.@threads :static for index in 1:trajectory_count
+        paired_result = paired_trajectory_statistics(
+            model,
+            index;
+            ensemble_size = trajectory_count,
+        )
+        configured_dead_time_results[index] = paired_result.configured_dead_time
+        zero_dead_time_results[index] = paired_result.zero_dead_time
+    end
+    return (
+        configured_dead_time = configured_dead_time_results,
+        zero_dead_time = zero_dead_time_results,
+    )
 end
 
 function ensemble_statistics(
@@ -453,12 +522,12 @@ function main()
     config = SimulationConfig(
         total_time = 75.0,
         steps = 75_000,
-        trajectories = 5_000,
+        trajectories = 7_500,
         beta = 0.05,
         gamma_total = 1.0,
-        alpha = sqrt(0.2),
+        alpha = sqrt(0.3),
         atom_count = 6,
-        detector_dead_time = 1.0,
+        detector_dead_time = 0.25,
         bin_width = 3.0,
         splitter_probabilities = (1 / 3, 1 / 3, 1 / 3),
         seed = 1_234,
@@ -467,16 +536,40 @@ function main()
     model = build_model(config)
     println("Steady state is obtained")
 
-    elapsed = @elapsed results = run_ensemble(model)
-    G3_stats = ensemble_statistics(results, model)
+    elapsed = @elapsed results = run_ensemble_with_zero_dead_time(model)
+    G3_stats = ensemble_statistics(results.configured_dead_time, model)
+    G3_stats_zero_dead_time = ensemble_statistics(results.zero_dead_time, model)
     true_G30 = tr(model.third_order_intensity * model.rho_ss)
 
     println("True value of G^(3):", true_G30)
+    println("Detector dead time $(config.detector_dead_time):")
     println("Pooled apparent G^(3) = ", G3_stats.pooled_G3_apparent)
     println("Mean trajectory G^(3) = ", G3_stats.mean_G3_apparent)
     println("Run-to-run standard deviation = ", G3_stats.std_G3_apparent)
     println("Monte Carlo standard error of the mean = ", G3_stats.sem_G3_apparent)
     println("Mean registered g^(3) = ", G3_stats.mean_g3_registered)
+    println()
+    println("Zero detector dead time results:")
+    println(
+        "Pooled apparent G^(3) without detector dead time ",
+        G3_stats_zero_dead_time.pooled_G3_apparent,
+    )
+    println(
+        "Mean trajectory G^(3) without detector dead time = ",
+        G3_stats_zero_dead_time.mean_G3_apparent,
+    )
+    println(
+        "Run-to-run standard deviation without detector dead time  ",
+        G3_stats_zero_dead_time.std_G3_apparent,
+    )
+    println(
+        "Monte Carlo standard error of the mean without detector dead time ",
+        G3_stats_zero_dead_time.sem_G3_apparent,
+    )
+    println(
+        "Mean registered g^(3) without detector dead time ",
+        G3_stats_zero_dead_time.mean_g3_registered,
+    )
     println("Trajectory simulation time (s) = ", elapsed)
     return nothing
 end
