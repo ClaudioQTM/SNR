@@ -8,14 +8,14 @@ using Base.Threads
 println(Threads.nthreads()) # check the number of threads
 
 const tot_t = 5.0               # total time, data type should be float.
-const β = 0.05f0
+const β = 0.04f0
 const Γtot = 1.0f0
 const γ = β*Γtot
 const Γ = (1-β)*Γtot                      # make sure that sqrt(β) << 1
 const k_0 = 0.0f0
 
 const α = sqrt(0.3)  # Actually it is α/√(L) in the paper
-const N = 8
+const N = 6
 const P_in  = abs(α)^2
 const P_sat = Γtot/β
 const a = k_0 + 1im*Γ*(1-2*β)/(2*β)
