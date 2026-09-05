@@ -199,12 +199,19 @@ function trajectories_parallel(ρt0, n::Integer; seed::Integer=1234)
 end
 
 
-function BS_branch_selector(emission_history,rng::AbstractRNG = Random.default_rng())
+function BS_branch_selector(
+    emission_history,
+    rng::AbstractRNG = Random.default_rng();
+    detector_dead_time::Real = τdd,
+)
+    detector_dead_time >= 0 ||
+        throw(ArgumentError("detector_dead_time must be nonnegative"))
+
     detector_rec = zeros(Int, steps)
     detector_state = [(0.0,0),(0.0,0),(0.0,0)] # in each tuple, the second element is the state of the detector (0 for Ready, 1 for Dead). the first element is the time stamp of the last detection if the detector state is dead.
     for tt in 1:steps
         for detector_label in 1:3
-            if detector_state[detector_label][2] == 1 && (tt - detector_state[detector_label][1]) * Δt > τdd
+            if detector_state[detector_label][2] == 1 && (tt - detector_state[detector_label][1]) * Δt > detector_dead_time
                 detector_state[detector_label] = (0.0,0) # reset the detector state to Ready
             end
         end
@@ -221,9 +228,15 @@ function BS_branch_selector(emission_history,rng::AbstractRNG = Random.default_r
 end
 
 
-function BS_branch_selector_parallel(emission_histories; seed::Integer=1234)
+function BS_branch_selector_parallel(
+    emission_histories;
+    seed::Integer = 1234,
+    detector_dead_time::Real = τdd,
+)
     n = length(emission_histories)
     n > 0 || throw(ArgumentError("emission histories must not be empty"))
+    detector_dead_time >= 0 ||
+        throw(ArgumentError("detector_dead_time must be nonnegative"))
 
     detector_records = Vector{Vector{Int}}(undef, n)
     Threads.@threads for i in eachindex(emission_histories)
@@ -231,7 +244,11 @@ function BS_branch_selector_parallel(emission_histories; seed::Integer=1234)
         # and reproducible independently of the thread scheduling order. The
         # offset avoids reusing trajectories_parallel's RNG streams.
         rng = Xoshiro(seed + n + i)
-        detector_records[i] = BS_branch_selector(emission_histories[i], rng)
+        detector_records[i] = BS_branch_selector(
+            emission_histories[i],
+            rng;
+            detector_dead_time = detector_dead_time,
+        )
     end
 
     return detector_records
@@ -241,6 +258,12 @@ end
 
 final_state_list, emission_histories = trajectories_parallel(ρt0, n_traj)
 branch_record = BS_branch_selector_parallel(emission_histories)
+# Reuse the same emission histories and RNG seeds so every photon is sent to
+# the same beam-splitter branch, changing only the detector dead time.
+branch_record_zero_dead_time = BS_branch_selector_parallel(
+    emission_histories;
+    detector_dead_time = 0.0,
+)
 #println(emission_histories) # test the trajectory function
 #println(size(branch_record))
 
@@ -504,6 +527,11 @@ G3_stats = estimate_G3_ensemble(
     t_bin,
 )
 
+G3_stats_zero_dead_time = estimate_G3_ensemble(
+    branch_record_zero_dead_time,
+    t_bin,
+)
+
 true_G30 = tr(third_order_I*sol_ss.u)
 println("True value of G^(3):$true_G30")
 
@@ -532,6 +560,31 @@ println(
     G3_stats.mean_g3_registered,
 )
 
+println(
+    "Pooled apparent G^(3) with detector dead time = 0.0 = ",
+    G3_stats_zero_dead_time.pooled_G3_apparent,
+)
+
+println(
+    "Mean trajectory G^(3) with detector dead time = 0.0 = ",
+    G3_stats_zero_dead_time.mean_G3_apparent,
+)
+
+println(
+    "Run-to-run standard deviation with detector dead time = 0.0 = ",
+    G3_stats_zero_dead_time.std_G3_apparent,
+)
+
+println(
+    "Monte Carlo standard error of the mean with detector dead time = 0.0 = ",
+    G3_stats_zero_dead_time.sem_G3_apparent,
+)
+
+println(
+    "Mean registered g^(3) with detector dead time = 0.0 = ",
+    G3_stats_zero_dead_time.mean_g3_registered,
+)
+
 #=
 final_states = trajectories_parallel(ρt0, n_traj)
 ρ_mean = reduce(+, final_states) / n_traj
@@ -540,4 +593,3 @@ println(ρ_mean)
 relative_error = norm(ρ_mean - sol_ss.u) / norm(sol_ss.u)
 println("Relative Frobenius error: ", relative_error)
 =#
-

@@ -10,14 +10,14 @@ using RecursiveArrayTools: ArrayPartition
 println(Threads.nthreads()) # check the number of threads
 
 const tot_t = 5.0               # total time, data type should be float.
-const β = 0.05
+const β = 0.08
 const Γtot = 1.0
 const γ = β*Γtot
 const Γ = (1-β)*Γtot                      # make sure that sqrt(β) << 1
 const k_0 = 0.0
 
-const α = sqrt(0.2)  # Actually it is α/√(L) in the paper
-const N = 6  
+const α = sqrt(0.8)  # Actually it is α/√(L) in the paper
+const N = 5  
 const P_in  = abs(α)^2
 const P_sat = Γtot/β
 const resol = 501               # ODE solver saves the values at 501 time points including the initial time
