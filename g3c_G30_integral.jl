@@ -430,7 +430,7 @@ end
 
 
 const T_G3 =
-    3 / Γtot
+    1.5 / Γtot
 
 G3_result =
     integrate_G3_square(

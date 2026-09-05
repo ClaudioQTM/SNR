@@ -23,7 +23,7 @@ Base.@kwdef struct SimulationConfig
     alpha::Float64 = sqrt(0.2)
     atom_count::Int = 6
     detector_dead_time::Float64 = 1
-    bin_width::Float64 = 3.0
+    bin_width::Float64 = 1.5
     splitter_probabilities::NTuple{3, Float64} = (1 / 3, 1 / 3, 1 / 3)
     seed::Int = 1_234
 end
