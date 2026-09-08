@@ -20,7 +20,7 @@ const λ_0 = 852 # the wavelength of probe laser, unit is nm
 const dtoλ_0 = d/λ_0
 const η = 0.25  # parameter for disorder
 const α = sqrt(0.1f0)  # Actually it is α/√(L) in the paper
-const N = 8
+const N = 12
 const P_in = abs(α)^2
 const P_sat = Γtot/β
 const resol = 101               # ODE solver saves the values at 101 time points including the initial time
@@ -34,7 +34,7 @@ const σz = [1 0; 0 -1]
 const σp = sparse([0 1; 0 0])    # raising operator, sparse
 const σm = sparse([0 0; 1 0])    # lowering operator, sparse
 const id2 = sparse(I, 2, 2)                # 2x2 sparse identity
-const idN = spdiagm(0 => ones(ComplexF32, 2^N))  # N-atom identity sparse
+const idN = SparseMatrixCSC{ComplexF32,Int32}(spdiagm(0 => ones(ComplexF32, 2^N)))  # Match GPU value/index types during assembly.
 
 const h = 0.005 # step size for finite difference
 
@@ -97,15 +97,12 @@ end
 t_points = [k * Δt for k in 0:(resol-1)]
 
 function g3c(ϵ)
-    term1 = -1im*sqrt(P_in/P_sat)*com(sum1)
-
-    L = spzeros(ComplexF32, 2^(2*N), 2^(2*N))
-    L += term1
-
-    term1 = nothing
+    ϵ = Float32(ϵ)
+    # Initialize directly: adding to an Int64-indexed spzeros would widen the indices.
+    L = -1im*sqrt(P_in/P_sat)*com(sum1)
 
     if N == 1
-        sum2 = spzeros(ComplexF32, 2, 2)
+        sum2 = spzeros(ComplexF32, Int32, 2, 2)
     else
         sum2 = β/2 * sum(σp_full[l]*σm_full[j]-σp_full[j]*σm_full[l] for j in 1:N for l in 1:(j-1))
         sum2 += ϵ/2 * sum(σp_full[l]*σm_full[j]*exp(φ[j]-φ[l])-σp_full[j]*σm_full[l]*exp(-(φ[j]-φ[l])) for l in 1:N for j in 1:(l-1))
@@ -115,7 +112,12 @@ function g3c(ϵ)
     L += term3
     term3 = nothing
 
-    D(x) = kron(x, idN)*kron(idN, conj(x))-1f0/2f0*(kron(x'*x, idN)+kron(idN, transpose(x'*x)))
+    function D(x)
+        xdagx = x'*x
+        val = kron(x, conj(x))-0.5f0*(kron(xdagx, idN)+kron(idN, transpose(xdagx)))
+        return val
+    end
+
 
     term2 = (1-β-ϵ) * sum(D(σm_full[k]) for k in 1:N)
     L += term2
@@ -130,14 +132,20 @@ function g3c(ϵ)
     L += term5
     term5 = nothing
 
-    L = Γtot*L
-    # Float64 positions promote the assembled L to ComplexF64; match the ComplexF32 states.
+    nonzeros(L) .*= Γtot
+    # Avoid full-size CPU conversion buffers in the GPU constructor.
+    @assert L isa SparseMatrixCSC{ComplexF32,Int32} "Liouvillian assembly widened its value or index type"
     L = CUSPARSE.CuSparseMatrixCSC{ComplexF32}(L)
 
     EOM_v!(dρ, ρ, p, t) = mul!(dρ, L, ρ)
     # Steady State Problem (pass L inside a tuple to skip DiffEqBase's isequal on GPU sparse)
     prob_ss = SteadyStateProblem{true}(EOM_v!, ρ0_v)   # Do not pass L to p inside a tuple to avoid DiffEqBase's isequal on GPU sparse
-    sol_ss = solve(prob_ss, DynamicSS(Tsit5()), abstol=1e-8, reltol=1e-6)
+    sol_ss = solve(prob_ss, DynamicSS(Tsit5());
+    save_everystep=false,
+    save_start=true,
+    dense=false,
+    abstol=1e-8,
+    reltol=1e-6)
 
     println("Steady state is obtained")
 
@@ -164,15 +172,28 @@ function g3c(ϵ)
 
         ρ_new = CuArray(ρ_new)
 
-        saved_values = SavedValues(Float64, Array{ComplexF32,1})
-        cb = SavingCallback((u, t, integrator) -> put!(c, Array(u)), saved_values,
-            saveat=0.0:Δt:time_span, save_everystep=false,
-            save_start=true)
+        saved_values = SavedValues(Float64, Nothing)
+
+        cb = SavingCallback(
+            (u, t, integrator) -> begin
+                put!(c, Array(u))
+                nothing
+            end,
+            saved_values;
+            saveat=0.0:Δt:time_span,
+            save_everystep=false,
+            save_start=true,
+        )
 
         prob = ODEProblem{true}(EOM_v!, ρ_new, (0.0, round((t_f-t_i)*100)/100)) # in-place form is true
         sol = solve(prob, Tsit5();
             callback=cb,
-            abstol=1e-9, reltol=1e-7
+            save_everystep=false,
+            save_start=false,
+            save_end=false,
+            dense=false,
+            abstol=1e-9,
+            reltol=1e-7
         )
     end
 
@@ -229,13 +250,14 @@ function g3c(ϵ)
         end
     end
 
-    g3c = zeros(ComplexF32, resol, resol)
+    g3c_val = zeros(ComplexF32, resol, resol)
     Threads.@threads for i in 1:resol
         for j in 1:(resol-i+1)
-            g3c[i, i+j-1] = 2 + G3[i, i+j-1]/out_power^3 - (G2[i]+G2[j]+G2[i+j-1])/out_power^2
+            g3c_val[i, i+j-1] = 2 + G3[i, i+j-1]/out_power^3 - (G2[i]+G2[j]+G2[i+j-1])/out_power^2
         end
     end
-    g3c = real(g3c + transpose(g3c) - diagm(diag(g3c)))
+    g3c_val = real(g3c_val + transpose(g3c_val) - diagm(diag(g3c_val)))
+    return g3c_val
 end
 
 g3c_0 = g3c(0.0)
