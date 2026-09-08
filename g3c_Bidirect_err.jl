@@ -20,7 +20,6 @@ const λ_0 = 852 # the wavelength of probe laser, unit is nm
 const dtoλ_0 = d/λ_0
 const η = 0.25  # parameter for disorder
 const α = sqrt(0.1f0)  # Actually it is α/√(L) in the paper
-const N = 12
 const P_in = abs(α)^2
 const P_sat = Γtot/β
 const resol = 101               # ODE solver saves the values at 101 time points including the initial time
@@ -34,69 +33,68 @@ const σz = [1 0; 0 -1]
 const σp = sparse([0 1; 0 0])    # raising operator, sparse
 const σm = sparse([0 0; 1 0])    # lowering operator, sparse
 const id2 = sparse(I, 2, 2)                # 2x2 sparse identity
-const idN = SparseMatrixCSC{ComplexF32,Int32}(spdiagm(0 => ones(ComplexF32, 2^N)))  # Match GPU value/index types during assembly.
-
-const h = 0.005 # step size for finite difference
 
 
-# generate a list of i.i.d. Gaussian random variables
-seed = 123
-φ = zeros(ComplexF32, N)
+function g3c(N, ϵ)
+    idN = SparseMatrixCSC{ComplexF32,Int32}(spdiagm(0 => ones(ComplexF32, 2^N)))
+    # generate a list of i.i.d. Gaussian random variables
+    seed = 123
+    φ = zeros(ComplexF32, N)
 
-R = zeros(Float32, N)
-for j in 1:N
-    Random.seed!(seed+j-1)
-    R[j] = rand(Normal(0, 1))
-end
+    R = zeros(Float32, N)
+    for j in 1:N
+        Random.seed!(seed+j-1)
+        R[j] = rand(Normal(0, 1))
+    end
 
-z = [j + η*R[j] for j in 1:N]
+    z = [j + η*R[j] for j in 1:N]
 
-if !all(diff(z) .> 0)
-    error("atoms are not ordered")
-end
+    if !all(diff(z) .> 0)
+        error("atoms are not ordered")
+    end
 
-for j in 1:N
-    φ[j] = 2im * 2 * pi * dtoλ_0 * z[j]
-end
-
-
-σp_full = Vector{SparseMatrixCSC{Int32,Int32}}(undef, N)
-σm_full = Vector{SparseMatrixCSC{Int32,Int32}}(undef, N)
-
-for k in 1:N
-    set_p = [id2 for _ in 1:N]
-    set_m = [id2 for _ in 1:N]
-    set_p[k] = σp
-    set_m[k] = σm
-    σp_full[k] = reduce(kron, set_p)
-    σm_full[k] = reduce(kron, set_m)
-end
-
-sum1 = sum(σm_full+σp_full)
-sum1 = sparse(sum1)
+    for j in 1:N
+        φ[j] = 2im * 2 * pi * dtoλ_0 * z[j]
+    end
 
 
-# define commutators
-com(A) = kron(A, idN) - kron(idN, transpose(A))  # sparse commutator operator
+    σp_full = Vector{SparseMatrixCSC{Int32,Int32}}(undef, N)
+    σm_full = Vector{SparseMatrixCSC{Int32,Int32}}(undef, N)
+
+    for k in 1:N
+        set_p = [id2 for _ in 1:N]
+        set_m = [id2 for _ in 1:N]
+        set_p[k] = σp
+        set_m[k] = σm
+        σp_full[k] = reduce(kron, set_p)
+        σm_full[k] = reduce(kron, set_m)
+    end
+
+    sum1 = sum(σm_full+σp_full)
+    sum1 = sparse(sum1)
 
 
-global ρ0 = 1
-for k in 1:N
-    ρ0_atom = [0 0; 0 1]      # each atom is initialized in the ground state
-    global ρ0 = kron(ρ0_atom, ρ0)
-end
-ρ0 = convert(Matrix{ComplexF32}, ρ0)
-ρ0_v = reshape(transpose(ρ0), 2^(2*N))
-ρ0 = nothing
-ρ0_v = CuArray(ρ0_v)  # move initial state vector to GPU
+    # define commutators
+    com(A) = kron(A, idN) - kron(idN, transpose(A))  # sparse commutator operator
 
+
+    ρ0 = 1
+    for k in 1:N
+        ρ0_atom = [0 0; 0 1]      # each atom is initialized in the ground state
+        ρ0 = kron(ρ0_atom, ρ0)
+    end
+    ρ0 = convert(Matrix{ComplexF32}, ρ0)
+    ρ0_v = reshape(transpose(ρ0), 2^(2*N))
+    ρ0 = nothing
+    ρ0_v = CuArray(ρ0_v)  # move initial state vector to GPU
 
 
 
-# Create time points array
-t_points = [k * Δt for k in 0:(resol-1)]
 
-function g3c(ϵ)
+    # Create time points array
+    t_points = [k * Δt for k in 0:(resol-1)]
+
+
     ϵ = Float32(ϵ)
     # Initialize directly: adding to an Int64-indexed spzeros would widen the indices.
     L = -1im*sqrt(P_in/P_sat)*com(sum1)
@@ -260,11 +258,14 @@ function g3c(ϵ)
     return g3c_val
 end
 
-g3c_0 = g3c(0.0)
+for n in 1:11
+    g3c_0 = g3c(n,0.0)
 
-g3c_005 = g3c(0.005)
+    g3c_005 = g3c(n,0.005)
 
-rel_err = norm(g3c_005 - g3c_0) / norm(g3c_0)
+    rel_err = norm(g3c_005 - g3c_0) / norm(g3c_0)
+    println(rel_err)
+end
 #g3c_h = g3c(h)
 
 #g3c_2h = g3c(2*h)
