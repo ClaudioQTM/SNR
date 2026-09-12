@@ -14,6 +14,7 @@ println(Threads.nthreads()) # check the number of threads
 const tot_t = 5.0               # total time, data type should be float.
 const β = 0.05f0
 const Γtot = 1.0f0
+const N_max = 11
 const γR = β * Γtot
 const d = 448  # the average distance between atoms, unit is nm
 const λ_0 = 852 # the wavelength of probe laser, unit is nm
@@ -145,7 +146,7 @@ function g3c(N, ϵ)
     abstol=1e-8,
     reltol=1e-6)
 
-    println("Steady state is obtained")
+#    println("Steady state is obtained")
 
     ρ_ss = transpose(reshape(Array(sol_ss.u), 2^(N), 2^(N)))
     sol_ss = nothing
@@ -258,14 +259,18 @@ function g3c(N, ϵ)
     return g3c_val
 end
 
-for n in 1:11
+error_line = zeros(Float32, N_max)
+for n in 1:N_max
     g3c_0 = g3c(n,0.0)
 
-    g3c_005 = g3c(n,0.005)
+    g3c_005 = g3c(n,0.01)
 
     rel_err = norm(g3c_005 - g3c_0) / norm(g3c_0)
     println(rel_err)
+    error_line[n] = rel_err
 end
+
+plot(error_line, xlabel="N", ylabel="Relative Error", title="Relative Error of g3c with ϵ=0.005 vs ϵ=0.0", size=(800, 600), dpi=300)
 #g3c_h = g3c(h)
 
 #g3c_2h = g3c(2*h)
