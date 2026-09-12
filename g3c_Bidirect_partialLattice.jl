@@ -6,9 +6,9 @@ using CUDA
 using Plots
 using Measures
 using DiffEqCallbacks
-#using JLD2
 
-# global variables always change, which slows the code
+
+
 println(Threads.nthreads()) # check the number of threads
 
 const tot_t = 5.0               # total time, data type should be float.
@@ -56,7 +56,6 @@ end
 
 
 function g3c(N::Integer,ϵ;
-                
                 filling::Real=filling_factor,
                 Nsites::Integer=round(Int, N/filling),
                 seed::Integer=base_seed + N,
@@ -65,14 +64,12 @@ function g3c(N::Integer,ϵ;
     idN = SparseMatrixCSC{ComplexF32,Int32}(spdiagm(0 => ones(ComplexF32, 2^N)))
     φ = zeros(ComplexF32, N)
 
-
     z, attempts = partial_lattice_exact_N(MersenneTwister(seed), N;
         filling=filling, Nsites=Nsites, max_attempts=max_attempts)
 #    println("N=$N, Nsites=$Nsites, attempts=$attempts, occupied sites=$z")
 
     φ = ComplexF32.(4im * pi * dtoλ_0 .* z)
     
-
 
     σp_full = Vector{SparseMatrixCSC{Int32,Int32}}(undef, N)
     σm_full = Vector{SparseMatrixCSC{Int32,Int32}}(undef, N)
