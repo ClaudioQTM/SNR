@@ -16,7 +16,7 @@ const β = 0.05f0
 const Γtot = 1.0f0
 const N_max = 11
 const filling_factor = 0.1
-const base_seed = 123
+const base_seed = 124
 const γR = β * Γtot
 const d = 448  # the average distance between atoms, unit is nm
 const λ_0 = 852 # the wavelength of probe laser, unit is nm
@@ -58,7 +58,7 @@ end
 function g3c(N::Integer,ϵ;
                 filling::Real=filling_factor,
                 Nsites::Integer=round(Int, N/filling),
-                seed::Integer=base_seed + N,
+                seed::Integer=base_seed,
                 max_attempts::Integer=100_000)
 
     idN = SparseMatrixCSC{ComplexF32,Int32}(spdiagm(0 => ones(ComplexF32, 2^N)))
@@ -275,7 +275,7 @@ error_line = zeros(Float32, N_max)
 for n in 1:N_max
     g3c_0 = g3c(n,0.0)
 
-    g3c_005 = g3c(n,0.005)
+    g3c_005 = g3c(n,0.1*β)
 
     rel_err = norm(g3c_005 - g3c_0) / norm(g3c_0)
     println(rel_err)
