@@ -16,7 +16,7 @@ const β = 0.05f0
 const Γtot = 1.0f0
 const N_max = 11
 const filling_factor = 0.1
-const base_seed = 124
+const base_seed = 128
 const γR = β * Γtot
 const d = 448  # the average distance between atoms, unit is nm
 const λ_0 = 852 # the wavelength of probe laser, unit is nm
@@ -294,7 +294,7 @@ for n in 1:N_max
 
     g3c_005 = g3c(n,0.1*β)
 
-    rel_err = norm(g3c_005 - g3c_0) / norm(g3c_0)
+    rel_err = norm(g3c_005 - g3c_0) / norm(g3c_005)
     println(rel_err)
     error_line[n] = rel_err
 end
